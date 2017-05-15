@@ -75,9 +75,37 @@ class SelectorBIC(ModelSelector):
         :return: GaussianHMM object
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        
+        best_model = []
+        best_BIC = float("inf")
+        for n_components in range(self.min_n_components, self.max_n_components+1):
+            try:
+                model = self.base_model(n_components)
+                if not model:
+                    if self.verbose:
+                        print("Word {}: no solution for {} states".format(self.this_word, n_components))
+                    continue
+                # #free parameters: initial state probabilities +
+                #                   transition probabilities + 
+                #                   emission probabilities
+                # p = (n-1) + n*(n-1) + 2*d*n
+                p = n_components**2 + 2 * float(len(self.X[0])) * n_components - 1
+                BIC = -2 * model.score(self.X, self.lengths) + p * np.log(len(self.X))
+                if self.verbose:
+                    print("logL for {} with {} states: {}".format(self.this_word, n_components, BIC))
+                if BIC < best_BIC:
+                    best_BIC = BIC
+                    best_model = model
+            except:
+                pass
+            
+        if not best_model:
+            return None
+        if self.verbose:
+            print("Best logL for {} with {} states: {}".format(self.this_word, best_model.n_components, best_BIC))
+        return best_model
+            
+        
 
 
 class SelectorDIC(ModelSelector):
@@ -92,8 +120,37 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_model = []
+        best_DIC = float("-inf")
+        for n_components in range(self.min_n_components, self.max_n_components+1):
+            try:
+                anti_log = 0
+                model = self.base_model(n_components)
+                if not model:
+                    if self.verbose:
+                        print("Word {}: no solution for {} states".format(self.this_word, n_components))
+                    continue
+                
+                for word in self.hwords:
+                    if word != self.this_word:
+                        X, lengths = self.hwords[word]
+                        anti_log += model.score(X, lengths)
+                
+                logL = model.score(self.X, self.lengths)
+                DIC = logL - anti_log / (float(len(self.hwords))-1)
+                if self.verbose:
+                    print("logL for {} with {} states: {}".format(self.this_word, n_components, DIC))
+                if DIC > best_DIC:
+                    best_DIC = DIC
+                    best_model = model
+            except:
+                pass
+            
+        if not best_model:
+            return None
+        if self.verbose:
+            print("Best logL for {} with {} states: {}".format(self.this_word, best_model.n_components, best_DIC))
+        return best_model
 
 
 class SelectorCV(ModelSelector):
@@ -102,7 +159,39 @@ class SelectorCV(ModelSelector):
     '''
 
     def select(self):
-        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        logL = float("-inf")
+        logs = []
+        best_num_components = []
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        if len(self.lengths) == 1:
+            return None
+        
+        split_method = KFold(n_splits=min(3, len(self.lengths)))
+        
+        for n_components in range(self.min_n_components, self.max_n_components+1):
+            logs = []
+            try:
+                for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                    self.X, self.lengths = combine_sequences(cv_train_idx, self.sequences)
+                    model = self.base_model(n_components)
+                    if not model:
+                        raise Exception("failure on {} with {} states".format(self.this_word, n_components))
+                    test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
+                    logs.append(model.score(test_X, test_lengths))
+                n_log = sum(logs)/float(len(logs))
+                if self.verbose:
+                    print("logL for {} with {} states: {}".format(self.this_word, n_components, n_log))
+                if n_log > logL:
+                    logL = n_log
+                    best_num_components = n_components
+            except:
+                pass
+            
+        if not best_num_components:
+            return None
+        if self.verbose:
+            print("Best logL for {} with {} states: {}".format(self.this_word, best_num_components, logL))
+        self.X, self.lengths = self.hwords[self.this_word]
+        return self.base_model(best_num_components)
+        
+        

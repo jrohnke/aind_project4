@@ -20,6 +20,27 @@ def recognize(models: dict, test_set: SinglesData):
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     probabilities = []
     guesses = []
-    # TODO implement the recognizer
-    # return probabilities, guesses
-    raise NotImplementedError
+    
+    test_X_lengths = test_set.get_all_Xlengths()
+    
+    # loop through all the test words
+    for test_word_id in test_X_lengths:
+        word_probs = {}
+        # get the sequence for the current testword
+        X, lengths = test_X_lengths[test_word_id]
+        # loop through all word models and calculate the likelihood that the model represents the test word
+        for word in models:
+            try:
+                model = models[word]
+                logL = model.score(X, lengths)
+                word_probs[word] = logL
+            except:
+                word_probs[word] = float("-inf")
+        probabilities.append(word_probs)
+            
+    # pick the word model with the highest likelihood for each test word
+    for n in range(len(probabilities)):
+        guesses.append(max(probabilities[n], key=lambda key: probabilities[n][key]))
+        
+    return probabilities, guesses
+            
